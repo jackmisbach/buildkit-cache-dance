@@ -32,6 +32,6 @@ RUN --mount=${d} \
     mkdir -p /var/dance-cache/ \
     && cp -p -R ${l}/. /var/dance-cache/ || true
 FROM scratch
-COPY --from=dance-extract /var/dance-cache /
+COPY --from=dance-extract --chmod=u=rwX,go=rX /var/dance-cache /
 `;await s.promises.writeFile(o.default.join(n,"Dancefile.extract"),f),console.log(f),await (0,u.run)("docker",["buildx","build","--builder",i,"-f",o.default.join(n,"Dancefile.extract"),"--tag","dance:extract","--output",`type=local,dest=${e}`,n])}async function d(e){if(e["skip-extraction"])return void console.log("skip-extraction is set. Skipping extraction step...");let t=await (0,c.getCacheMap)(e),n=e["scratch-dir"],r=e["utility-image"],i=(0,c.getBuilder)(e);for(let[e,s]of Object.entries(t))await l(e,s,n,r,i)}},{fs:"fs",path:"path","./opts.js":"bjlzi","./run.js":"kHqLa","@parcel/transformer-js/src/esmodule-helpers.js":"8h9S8"}]},["7sz5b"],"7sz5b","parcelRequire86b4",{fs:e,os:t,path:n,http:r,https:i,net:s,tls:a,events:o,assert:c,util:u,child_process:l});let{}=parcelRequire86b4("7sz5b");
 //# sourceMappingURL=index.js.map
