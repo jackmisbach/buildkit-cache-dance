@@ -27,8 +27,7 @@ COPY --from=dance-extract --chmod=u=rwX,go=rX /var/dance-cache /
     console.log(dancefileContent);
 
     // Extract cache
-    await run('docker', ['buildx', 'build', '--builder', builder, '-f', path.join(scratchDir, 'Dancefile.extract'), '--tag', 'dance:extract', '--output', `type=local,dest=${cacheSource}`, scratchDir]);
-}
+    await run('docker', ['buildx', 'build', ...(builder ? ['--builder', builder] : []), '-f', path.join(scratchDir, 'Dancefile.extract'), '--tag', 'dance:extract', '--output', `type=local,dest=${cacheSource}`, scratchDir]);}
 
 export async function extractCaches(opts: Opts) {
     if (opts["skip-extraction"]) {
