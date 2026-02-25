@@ -10,7 +10,7 @@ async function extractCache(cacheSource: string, cacheOptions: CacheOptions, scr
     await fs.mkdir(scratchDir, { recursive: true });
     await fs.writeFile(path.join(scratchDir, 'buildstamp'), date);
 
-    // Prepare Dancefile to Access Caches
+    // Prepare Dancefile to Access C aches
     const targetPath = getTargetPath(cacheOptions);
     const mountArgs = getMountArgsString(cacheOptions);
 
