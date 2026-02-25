@@ -19,8 +19,7 @@ FROM ${containerImage}
 COPY buildstamp buildstamp
 RUN --mount=${mountArgs} \
     mkdir -p /var/dance-cache/ \
-    && cp -p -R ${targetPath}/. /var/dance-cache/ \
-    && chmod -R u=rwX,go=rX /var/dance-cache/ || true
+    && cp -p -R ${targetPath}/. /var/dance-cache/ || true
 `;
     await fs.writeFile(path.join(scratchDir, 'Dancefile.extract'), dancefileContent);
     console.log(dancefileContent);
