@@ -39,8 +39,7 @@ RUN --mount=${mountArgs} \
     console.log(dancefileContent);
 
     // Inject Data into Docker Cache
-    await run('docker', ['buildx', 'build', '--builder', builder ,'-f', path.join(scratchDir, 'Dancefile.inject'), '--tag', 'dance:inject', cacheSource]);
-
+    await run('docker', ['buildx', 'build', ...(builder ? ['--builder', builder] : []), '-f', path.join(scratchDir, 'Dancefile.inject'), '--tag', 'dance:inject', cacheSource]);    
     // Clean Directories
     try {
         await fs.rm(cacheSource, { recursive: true, force: true });

@@ -29,7 +29,7 @@ export function parseOpts(args: string[]): mri.Argv<Opts> {
       "skip-extraction": (getInput("skip-extraction") || "false") === "true",
       "extract": process.env[`STATE_POST`] !== undefined,
       "utility-image": getInput("utility-image") || "ghcr.io/containerd/busybox:latest",
-      "builder": getInput("builder") || "default",
+      "builder": getInput("builder"),
       "help": false,
     },
     string: ["cache-map", "dockerfile", "cache-dir", "scratch-dir", "cache-source", "cache-target", "utility-image", "builder"],
@@ -184,5 +184,5 @@ export function getMountArgsString(cacheOptions: CacheOptions): string {
 }
 
 export function getBuilder(opts: Opts): string {
-    return opts["builder"] == null || opts["builder"] == "" ? "default" : opts["builder"];
+    return opts["builder"] ?? "";
 }

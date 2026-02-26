@@ -28,8 +28,8 @@ inputs:
     default: "ghcr.io/containerd/busybox:latest"
     description: "The container image to use for injecting and extracting the cache"
   builder:
-    default: default
-    description: "The name of the builder. Default: 'default'"
+    default: ""
+    description: "The name of the buildx builder to use. If not specified, the currently active builder is used."
 runs:
   using: 'node20'
   main: 'dist/index.js'
