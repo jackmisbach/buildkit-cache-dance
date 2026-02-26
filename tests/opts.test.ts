@@ -15,7 +15,7 @@ test('parseOpts with no arguments', () => {
         "h": false,
         "help": false,
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -32,7 +32,7 @@ test('parseOpts with cache-map argument', () => {
         "h": false,
         "help": false,
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -51,7 +51,7 @@ test('parseOpts with deprecated cache-source and cache-target arguments', () => 
         "cache-source": 'source',
         "cache-target": 'target',
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -68,7 +68,7 @@ test('parseOpts with utility-image argument', () => {
         "h": false,
         "help": false,
         "utility-image": "alpine:1",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -102,7 +102,7 @@ test('parseOpts with dockerfile argument', () => {
         "h": false,
         "help": false,
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -119,7 +119,7 @@ test('parseOpts with cache-dir argument', () => {
         "h": false,
         "help": false,
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
@@ -136,7 +136,7 @@ test('parseOpts with help argument', () => {
         "h": true,
         "help": true,
         "utility-image": "ghcr.io/containerd/busybox:latest",
-        "builder": "default"
+        "builder": ""
     })
 })
 
