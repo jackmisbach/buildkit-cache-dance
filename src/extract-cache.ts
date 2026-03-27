@@ -38,11 +38,11 @@ RUN --mount=${mountArgs} \
     // Unpack Docker Image into Scratch
     await runPiped(
         ['docker', ['cp', '-L', 'cache-container:/var/dance-cache', '-']],
-        ['tar', ['-H', 'posix', '-x', '-C', scratchDir]]
+        ['tar', ['-H', 'posix', '--no-same-owner', '-x', '-C', scratchDir]]
     );
 
-    // Move Cache into Its Place
-    await run('sudo', ['rm', '-rf', cacheSource]);
+    // Replace old cache with newly extracted cache
+    await fs.rm(cacheSource, { recursive: true, force: true });
     await fs.rename(path.join(scratchDir, 'dance-cache'), cacheSource);
 }
 
