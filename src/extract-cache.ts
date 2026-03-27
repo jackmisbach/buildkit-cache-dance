@@ -41,8 +41,12 @@ RUN --mount=${mountArgs} \
         ['tar', ['-H', 'posix', '-x', '-C', scratchDir]]
     );
 
-    // Move Cache into Its Place
-    await run('sudo', ['rm', '-rf', cacheSource]);
+    // Remove old cache (root-owned files from Docker, so use a container instead of sudo to allow rootless configuration)
+    const absSource = path.resolve(cacheSource);
+    const parentDir = path.dirname(absSource);
+    const baseName = path.basename(absSource);
+    await run('docker', ['run', '--rm', '-v', `${parentDir}:/host-parent`, containerImage, 'rm', '-rf', `/host-parent/${baseName}`]);
+    // Move extracted cache into place
     await fs.rename(path.join(scratchDir, 'dance-cache'), cacheSource);
 }
 
