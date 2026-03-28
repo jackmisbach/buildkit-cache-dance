@@ -1,64 +1,127 @@
-name: Test extraction methods v3
+name: Test extraction methods v5
 on:
   push:
     branches:
       - testing-extraction-methods
 
 jobs:
-  # Test using the actual cache-dance action with a real build
-  real-workflow:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
+  test:
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
-        platform: [linux/amd64, linux/arm64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7]
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: testing-extraction-methods
+        include:
+          # ===== ARM HOST (ubuntu-24.04-arm) - matches pwndbg workflow =====
+          # v3.3.1 method (FROM scratch + COPY --chmod + output type=local)
+          - runner: ubuntu-24.04-arm
+            platform: linux/386
+            method: v331
+            label: arm-host-386-v331
+          - runner: ubuntu-24.04-arm
+            platform: linux/ppc64le
+            method: v331
+            label: arm-host-ppc64le-v331
+          - runner: ubuntu-24.04-arm
+            platform: linux/riscv64
+            method: v331
+            label: arm-host-riscv64-v331
+          - runner: ubuntu-24.04-arm
+            platform: linux/s390x
+            method: v331
+            label: arm-host-s390x-v331
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            method: v331
+            label: arm-host-arm64-v331-native
+          - runner: ubuntu-24.04-arm
+            platform: linux/amd64
+            method: v331
+            label: arm-host-amd64-v331
 
+          # v3.3.0 method on ARM host for comparison
+          - runner: ubuntu-24.04-arm
+            platform: linux/386
+            method: v330
+            label: arm-host-386-v330
+          - runner: ubuntu-24.04-arm
+            platform: linux/ppc64le
+            method: v330
+            label: arm-host-ppc64le-v330
+          - runner: ubuntu-24.04-arm
+            platform: linux/riscv64
+            method: v330
+            label: arm-host-riscv64-v330
+          - runner: ubuntu-24.04-arm
+            platform: linux/s390x
+            method: v330
+            label: arm-host-s390x-v330
+          - runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            method: v330
+            label: arm-host-arm64-v330-native
+          - runner: ubuntu-24.04-arm
+            platform: linux/amd64
+            method: v330
+            label: arm-host-amd64-v330
+
+          # v3.3.1 WITHOUT --chmod on ARM host
+          - runner: ubuntu-24.04-arm
+            platform: linux/386
+            method: v331-no-chmod
+            label: arm-host-386-v331-no-chmod
+          - runner: ubuntu-24.04-arm
+            platform: linux/s390x
+            method: v331-no-chmod
+            label: arm-host-s390x-v331-no-chmod
+          - runner: ubuntu-24.04-arm
+            platform: linux/riscv64
+            method: v331-no-chmod
+            label: arm-host-riscv64-v331-no-chmod
+
+          # ===== AMD64 HOST (ubuntu-latest) =====
+          - runner: ubuntu-latest
+            platform: linux/amd64
+            method: v331
+            label: amd-host-amd64-v331-native
+          - runner: ubuntu-latest
+            platform: linux/arm64
+            method: v331
+            label: amd-host-arm64-v331
+          - runner: ubuntu-latest
+            platform: linux/arm/v7
+            method: v331
+            label: amd-host-armv7-v331
+          - runner: ubuntu-latest
+            platform: linux/386
+            method: v331
+            label: amd-host-386-v331
+          - runner: ubuntu-latest
+            platform: linux/s390x
+            method: v331
+            label: amd-host-s390x-v331
+          - runner: ubuntu-latest
+            platform: linux/ppc64le
+            method: v331
+            label: amd-host-ppc64le-v331
+
+    runs-on: ${{ matrix.runner }}
+    name: ${{ matrix.label }}
+    steps:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
         id: buildx
 
-      - uses: actions/cache@v4
-        id: cache
-        with:
-          path: test-apt-cache
-          key: test-apt-${{ matrix.platform }}-${{ github.run_id }}
-
-      # Use the action from this repo at the v3.3.1-style commit (before your revert)
-      # We'll test with the current code but modify extract-cache.ts
-      # Actually let's just manually do what the action does
+      - name: Print buildkit version
+        run: docker buildx inspect --builder ${{ steps.buildx.outputs.name }}
 
       - name: Prepare
-        run: |
-          mkdir -p scratch test-apt-cache
-          date > scratch/buildstamp
+        run: mkdir -p scratch cache-output && date > scratch/buildstamp
 
-      - name: Inject cache
+      - name: Populate cache (real apt install)
         run: |
           cat > scratch/Dancefile.inject << 'DEOF'
-          FROM ghcr.io/containerd/busybox:latest
-          COPY buildstamp buildstamp
-          RUN --mount=type=cache,target=/var/cache/apt \
-              --mount=type=bind,source=.,target=/var/dance-cache \
-              cp -p -R /var/dance-cache/. /var/cache/apt || true
-          DEOF
-
-          docker buildx build \
-            --builder ${{ steps.buildx.outputs.name }} \
-            --platform ${{ matrix.platform }} \
-            -f scratch/Dancefile.inject \
-            --tag dance:inject \
-            --progress=plain \
-            scratch
-
-      - name: Real build (installs packages, populates cache)
-        run: |
-          cat > scratch/Dockerfile.build << 'DEOF'
           FROM debian:bookworm-slim
+          COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
               --mount=type=cache,target=/var/lib/apt,sharing=locked \
               rm -f /etc/apt/apt.conf.d/docker-clean && \
@@ -67,22 +130,23 @@ jobs:
               apt-get install -y --no-install-recommends \
                 curl wget git ca-certificates \
                 build-essential gcc g++ make \
-                python3 python3-pip python3-dev && \
-              echo "installed"
+                python3 python3-dev && \
+              echo "=== cache size ===" && \
+              du -sh /var/cache/apt /var/lib/apt 2>/dev/null || true
           DEOF
 
           docker buildx build \
             --builder ${{ steps.buildx.outputs.name }} \
             --platform ${{ matrix.platform }} \
-            -f scratch/Dockerfile.build \
-            --tag testbuild:latest \
+            -f scratch/Dancefile.inject \
             --progress=plain \
             scratch
 
-      # Now test the v3.3.1 extraction method (the one that hangs)
-      - name: "Extract cache (v3.3.1 method: FROM scratch + COPY --chmod + output type=local)"
+      - name: "Extract (${{ matrix.method }})"
         run: |
-          cat > scratch/Dancefile.extract << 'DEOF'
+          case "${{ matrix.method }}" in
+            v331)
+              cat > scratch/Dancefile.extract << 'DEOF'
           FROM ghcr.io/containerd/busybox:latest AS dance-extract
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/cache/apt \
@@ -91,21 +155,59 @@ jobs:
           FROM scratch
           COPY --from=dance-extract --chmod=u=rwX,go=rX /var/dance-cache /
           DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --output type=local,dest=cache-output \
+                --progress=plain \
+                scratch
+              ;;
 
-          echo "=== Starting extraction (this is where the hang would occur) ==="
-          docker buildx build \
-            --builder ${{ steps.buildx.outputs.name }} \
-            --platform ${{ matrix.platform }} \
-            -f scratch/Dancefile.extract \
-            --tag dance:extract \
-            --output type=local,dest=test-apt-cache \
-            --progress=plain \
-            scratch
-          echo "=== Extraction completed ==="
+            v331-no-chmod)
+              cat > scratch/Dancefile.extract << 'DEOF'
+          FROM ghcr.io/containerd/busybox:latest AS dance-extract
+          COPY buildstamp buildstamp
+          RUN --mount=type=cache,target=/var/cache/apt \
+              mkdir -p /var/dance-cache/ \
+              && cp -p -R /var/cache/apt/. /var/dance-cache/ || true
+          FROM scratch
+          COPY --from=dance-extract /var/dance-cache /
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --output type=local,dest=cache-output \
+                --progress=plain \
+                scratch
+              ;;
+
+            v330)
+              cat > scratch/Dancefile.extract << 'DEOF'
+          FROM ghcr.io/containerd/busybox:latest
+          COPY buildstamp buildstamp
+          RUN --mount=type=cache,target=/var/cache/apt \
+              mkdir -p /var/dance-cache/ \
+              && cp -p -R /var/cache/apt/. /var/dance-cache/ || true
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --load \
+                --progress=plain \
+                scratch || true
+
+              docker create -ti --name cache-container dance:extract 2>/dev/null && \
+                docker cp -L cache-container:/var/dance-cache - | tar -x -C cache-output && \
+                docker rm -f cache-container || echo "load method not available for this platform"
+              ;;
+          esac
 
       - name: Verify
         run: |
           echo "=== Cache size ==="
-          du -sh test-apt-cache/ 2>/dev/null || echo "EMPTY"
+          du -sh cache-output/ 2>/dev/null || echo "EMPTY"
           echo "=== File count ==="
-          find test-apt-cache/ -type f 2>/dev/null | wc -l
+          find cache-output/ -type f 2>/dev/null | wc -l
