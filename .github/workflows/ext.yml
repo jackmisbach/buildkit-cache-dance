@@ -1,0 +1,57 @@
+name: Test extraction methods
+on: workflow_dispatch
+
+jobs:
+  test-extract:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux/amd64, linux/arm64, linux/ppc64le, linux/s390x]
+        method: [local-with-chmod, local-no-chmod, local-no-scratch]
+    steps:
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+        id: buildx
+      
+      - name: Create test files
+        run: |
+          mkdir -p scratch
+          date > scratch/buildstamp
+          
+          if [ "${{ matrix.method }}" = "local-with-chmod" ]; then
+            cat > scratch/Dancefile <<'EOF'
+          FROM --platform=${{ matrix.platform }} ghcr.io/containerd/busybox:latest AS dance-extract
+          COPY buildstamp buildstamp
+          RUN mkdir -p /var/dance-cache && echo "test" > /var/dance-cache/testfile
+          FROM scratch
+          COPY --from=dance-extract --chmod=u=rwX,go=rX /var/dance-cache /
+          EOF
+          elif [ "${{ matrix.method }}" = "local-no-chmod" ]; then
+            cat > scratch/Dancefile <<'EOF'
+          FROM --platform=${{ matrix.platform }} ghcr.io/containerd/busybox:latest AS dance-extract
+          COPY buildstamp buildstamp
+          RUN mkdir -p /var/dance-cache && echo "test" > /var/dance-cache/testfile
+          FROM scratch
+          COPY --from=dance-extract /var/dance-cache /
+          EOF
+          elif [ "${{ matrix.method }}" = "local-no-scratch" ]; then
+            cat > scratch/Dancefile <<'EOF'
+          FROM --platform=${{ matrix.platform }} ghcr.io/containerd/busybox:latest
+          COPY buildstamp buildstamp
+          RUN mkdir -p /var/dance-cache && echo "test" > /var/dance-cache/testfile
+          EOF
+          fi
+      
+      - name: Test build
+        timeout-minutes: 5
+        run: |
+          docker buildx build \
+            --builder ${{ steps.buildx.outputs.name }} \
+            -f scratch/Dancefile \
+            --output type=local,dest=output \
+            --progress=plain \
+            scratch
+          
+          echo "Success! Output:"
+          ls -la output/
