@@ -41,8 +41,8 @@ RUN --mount=${mountArgs} \
         ['tar', ['-H', 'posix', '--no-same-owner', '-x', '-C', scratchDir]]
     );
 
-    // Replace old cache with newly extracted cache
-    await fs.rm(cacheSource, { recursive: true, force: true });
+    // Replace old cache with extracted cache
+    await run('rm', ['-rf', cacheSource]);
     await fs.rename(path.join(scratchDir, 'dance-cache'), cacheSource);
 }
 
