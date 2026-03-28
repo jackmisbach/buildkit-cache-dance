@@ -1,38 +1,59 @@
-name: Test extraction methods
+name: Test extraction methods v2
 on:
   push:
     branches:
       - testing-extraction-methods
 
 jobs:
-  test-local-export:
+  test-extract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
         platform: [linux/amd64, linux/arm64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/riscv64]
-        method: [local-with-chmod, local-no-chmod]
+        method: [v331-with-chmod, v331-no-chmod, v331-no-scratch, v330-load-cp]
+        exclude:
+          # --load only works for native arch
+          - method: v330-load-cp
+            platform: linux/arm64
+          - method: v330-load-cp
+            platform: linux/ppc64le
+          - method: v330-load-cp
+            platform: linux/s390x
+          - method: v330-load-cp
+            platform: linux/386
+          - method: v330-load-cp
+            platform: linux/arm/v7
+          - method: v330-load-cp
+            platform: linux/riscv64
     steps:
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
         id: buildx
 
-      - name: Prepare scratch dir
+      - name: Prepare
         run: mkdir -p scratch cache-output && date > scratch/buildstamp
 
+      # Step 1: Populate cache mount with realistic data (many small files + large files)
       - name: Populate cache mount
         run: |
-          cat > scratch/Dancefile.inject << 'EOF'
+          cat > scratch/Dancefile.inject << 'DEOF'
           FROM ghcr.io/containerd/busybox:latest
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/test-cache \
               --mount=type=bind,source=.,target=/var/dance-cache \
-              mkdir -p /var/test-cache/subdir && \
-              echo "cached-data" > /var/test-cache/testfile && \
-              dd if=/dev/urandom of=/var/test-cache/subdir/bigfile bs=1K count=512 2>/dev/null && \
-              echo "cache populated"
-          EOF
+              mkdir -p /var/test-cache && \
+              i=0; while [ $i -lt 500 ]; do \
+                dir="/var/test-cache/pkg_$(printf '%03d' $i)"; \
+                mkdir -p "$dir"; \
+                dd if=/dev/urandom of="$dir/data.bin" bs=1K count=100 2>/dev/null; \
+                echo "pkg $i metadata" > "$dir/metadata.json"; \
+                i=$((i + 1)); \
+              done && \
+              dd if=/dev/urandom of=/var/test-cache/large_blob.bin bs=1M count=50 2>/dev/null && \
+              echo "populated $(du -sh /var/test-cache | cut -f1)"
+          DEOF
 
           docker buildx build \
             --builder ${{ steps.buildx.outputs.name }} \
@@ -42,10 +63,33 @@ jobs:
             --progress=plain \
             scratch
 
+      # Step 2: Simulate a real build that reads from the cache (like the main docker build step)
+      - name: Simulate main build (reads cache)
+        run: |
+          cat > scratch/Dancefile.build << 'DEOF'
+          FROM ghcr.io/containerd/busybox:latest
+          COPY buildstamp buildstamp
+          RUN --mount=type=cache,target=/var/test-cache \
+              echo "cache size: $(du -sh /var/test-cache 2>/dev/null | cut -f1)" && \
+              ls /var/test-cache/ | head -5 && \
+              echo "build step done"
+          DEOF
+
+          docker buildx build \
+            --builder ${{ steps.buildx.outputs.name }} \
+            --platform ${{ matrix.platform }} \
+            -f scratch/Dancefile.build \
+            --tag dance:build \
+            --progress=plain \
+            scratch
+
+      # Step 3: Extract cache (this is the post-job step that hangs)
       - name: "Extract: ${{ matrix.method }} on ${{ matrix.platform }}"
         run: |
-          if [ "${{ matrix.method }}" = "local-with-chmod" ]; then
-            cat > scratch/Dancefile.extract << 'EOF'
+          case "${{ matrix.method }}" in
+            v331-with-chmod)
+              # v3.3.1 exact method: FROM scratch + COPY --chmod + --output type=local
+              cat > scratch/Dancefile.extract << 'DEOF'
           FROM ghcr.io/containerd/busybox:latest AS dance-extract
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/test-cache \
@@ -53,9 +97,20 @@ jobs:
               && cp -p -R /var/test-cache/. /var/dance-cache/ || true
           FROM scratch
           COPY --from=dance-extract --chmod=u=rwX,go=rX /var/dance-cache /
-          EOF
-          else
-            cat > scratch/Dancefile.extract << 'EOF'
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --tag dance:extract \
+                --output type=local,dest=cache-output \
+                --progress=plain \
+                scratch
+              ;;
+
+            v331-no-chmod)
+              # v3.3.1 but without --chmod
+              cat > scratch/Dancefile.extract << 'DEOF'
           FROM ghcr.io/containerd/busybox:latest AS dance-extract
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/test-cache \
@@ -63,77 +118,63 @@ jobs:
               && cp -p -R /var/test-cache/. /var/dance-cache/ || true
           FROM scratch
           COPY --from=dance-extract /var/dance-cache /
-          EOF
-          fi
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --tag dance:extract \
+                --output type=local,dest=cache-output \
+                --progress=plain \
+                scratch
+              ;;
 
-          docker buildx build \
-            --builder ${{ steps.buildx.outputs.name }} \
-            --platform ${{ matrix.platform }} \
-            -f scratch/Dancefile.extract \
-            --tag dance:extract \
-            --output type=local,dest=cache-output \
-            --progress=plain \
-            scratch
-
-      - name: Verify output
-        run: |
-          echo "=== Output ==="
-          ls -laR cache-output/ || echo "EMPTY"
-
-  test-load-and-cp:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - uses: docker/setup-buildx-action@v3
-        id: buildx
-
-      - name: Prepare scratch dir
-        run: mkdir -p scratch cache-output && date > scratch/buildstamp
-
-      - name: Populate cache mount
-        run: |
-          cat > scratch/Dancefile.inject << 'EOF'
-          FROM ghcr.io/containerd/busybox:latest
+            v331-no-scratch)
+              # --output type=local but no FROM scratch stage, export directly with --target
+              cat > scratch/Dancefile.extract << 'DEOF'
+          FROM ghcr.io/containerd/busybox:latest AS dance-extract
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/test-cache \
-              --mount=type=bind,source=.,target=/var/dance-cache \
-              mkdir -p /var/test-cache/subdir && \
-              echo "cached-data" > /var/test-cache/testfile && \
-              dd if=/dev/urandom of=/var/test-cache/subdir/bigfile bs=1K count=512 2>/dev/null && \
-              echo "cache populated"
-          EOF
+              mkdir -p /var/dance-cache/ \
+              && cp -p -R /var/test-cache/. /var/dance-cache/ || true
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --tag dance:extract \
+                --output type=local,dest=cache-output \
+                --progress=plain \
+                scratch
+              ;;
 
-          docker buildx build \
-            --builder ${{ steps.buildx.outputs.name }} \
-            -f scratch/Dancefile.inject \
-            --tag dance:inject \
-            --progress=plain \
-            scratch
-
-      - name: "Extract: load-and-cp (v3.3.0 method)"
-        run: |
-          cat > scratch/Dancefile.extract << 'EOF'
+            v330-load-cp)
+              # v3.3.0 method: --load + docker create + docker cp (native only)
+              cat > scratch/Dancefile.extract << 'DEOF'
           FROM ghcr.io/containerd/busybox:latest
           COPY buildstamp buildstamp
           RUN --mount=type=cache,target=/var/test-cache \
               mkdir -p /var/dance-cache/ \
               && cp -p -R /var/test-cache/. /var/dance-cache/ || true
-          EOF
+          DEOF
+              docker buildx build \
+                --builder ${{ steps.buildx.outputs.name }} \
+                --platform ${{ matrix.platform }} \
+                -f scratch/Dancefile.extract \
+                --tag dance:extract \
+                --load \
+                --progress=plain \
+                scratch
+              docker create -ti --name cache-container dance:extract
+              mkdir -p cache-output
+              docker cp -L cache-container:/var/dance-cache - | tar -x -C cache-output
+              docker rm -f cache-container
+              ;;
+          esac
 
-          docker buildx build \
-            --builder ${{ steps.buildx.outputs.name }} \
-            -f scratch/Dancefile.extract \
-            --tag dance:extract \
-            --load \
-            --progress=plain \
-            scratch
-
-          docker create -ti --name cache-container dance:extract
-          mkdir -p cache-output
-          docker cp -L cache-container:/var/dance-cache - | tar -x -C cache-output
-          docker rm -f cache-container
-
-      - name: Verify output
+      - name: Verify
         run: |
-          echo "=== Output ==="
-          ls -laR cache-output/ || echo "EMPTY"
+          echo "=== Cache output size ==="
+          du -sh cache-output/ 2>/dev/null || echo "NO OUTPUT"
+          echo "=== File count ==="
+          find cache-output/ -type f 2>/dev/null | wc -l || echo "0"
